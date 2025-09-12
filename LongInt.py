@@ -80,6 +80,10 @@ class LongInt:
             raise AttributeError(
                 f"Переданный параметр не принадлежит классу f{self.__class__}")
 
+        if other.M != self.M:
+            raise AttributeError(
+                f"Переданный параметр имеет другую систему счисления: {self.M} | {other.M}")
+
         if self.sign != other.sign:
             if self.sign == -1:
                 return other - LongInt(self.__str__()[1:], self.M, self.N)
@@ -118,6 +122,10 @@ class LongInt:
         if not isinstance(other, LongInt):
             raise AttributeError(
                 f"Переданный параметр не принадлежит классу f{self.__class__}")
+
+        if other.M != self.M:
+            raise AttributeError(
+                f"Переданный параметр имеет другую систему счисления: {self.M} | {other.M}")
 
         if self.sign != other.sign:
             if self.sign == -1:
@@ -177,6 +185,10 @@ class LongInt:
             raise AttributeError(
                 f"Переданный параметр не принадлежит классу f{self.__class__}")
 
+        if other.M != self.M:
+            raise AttributeError(
+                f"Переданный параметр имеет другую систему счисления: {self.M} | {other.M}")
+
         if self._is_zero() or other._is_zero():
             return LongInt("0", self.M, self.N)
 
@@ -211,6 +223,10 @@ class LongInt:
         if not isinstance(other, LongInt):
             raise AttributeError(
                 f"Переданный параметр не принадлежит классу f{self.__class__}")
+
+        if other.M != self.M:
+            raise AttributeError(
+                f"Переданный параметр имеет другую систему счисления: {self.M} | {other.M}")
 
         if other._is_zero():
             raise ZeroDivisionError("Деление на ноль")
@@ -261,13 +277,25 @@ class LongInt:
             current = current - subtract
 
         result.digits = quotient_digits[::-1]
+
         result._normalize()
+
+        if result.sign == 1:
+            result = result - LongInt("1", self.M, self.N)
+        else:
+            result = result + LongInt("1", self.M, self.N)
+
         return result
 
     def __eq__(self, other):
         if not isinstance(other, LongInt):
             raise AttributeError(
                 f"Переданный параметр не принадлежит классу f{self.__class__}")
+
+        if other.M != self.M:
+            raise AttributeError(
+                f"Переданный параметр имеет другую систему счисления: {self.M} | {other.M}")
+
         return (self.sign == other.sign and
                 len(self.digits) == len(other.digits) and
                 all(a == b for a, b in zip(self.digits, other.digits)))
@@ -276,6 +304,10 @@ class LongInt:
         if not isinstance(other, LongInt):
             raise AttributeError(
                 f"Переданный параметр не принадлежит классу f{self.__class__}")
+
+        if other.M != self.M:
+            raise AttributeError(
+                f"Переданный параметр имеет другую систему счисления: {self.M} | {other.M}")
 
         if self.sign != other.sign:
             return self.sign < other.sign
