@@ -1,353 +1,390 @@
 class LongInt:
-    alphabet = "-0123456789abcdefghijklmnopqrstuvwxyz"
-
-    def __init__(self, num_str: str, M: int, N: int):
-        if len(num_str) > N:
-            raise AttributeError(f"Число больше допустимой разрядности {N}")
-
-        if M < 2 or M > (len(LongInt.alphabet)-1):
-            raise AttributeError(
-                f"Дозволенные разрядности: 2 - {len(LongInt.alphabet) - 1}")
-
-        self.M = M
-        self.N = N
-        _fact_alphabet = LongInt.alphabet[1:M+1]
-
-        if num_str.startswith('-'):
-            self.sign = -1
-            num_str = num_str[1:]
-        else:
-            self.sign = 1
-
-        for char in num_str:
-            if char not in _fact_alphabet:
-                raise AttributeError(
-                    f"Цифра '{char}' недопустима в системе счисления {M}.")
-
-        num_str = num_str.lstrip('0') or '0'
-
-        self.digits = []
-        for char in num_str[::-1]:
-            self.digits.append(LongInt.alphabet.index(char) - 1)
-
-        self._normalize()
-
-    def _normalize(self) -> None:
-        """Удаление ведущих нулей и нормализация"""
+    def __init__(self, M: int, N: int, Signed: bool, *Digits: int):
+        if M < 1:
+            raise ValueError(f"Основание системы должно быть не менее 1, получено {M}")
+        if N < 1:
+            raise ValueError(f"Максимальная разрядность должна быть не менее 1, получено {N}")
+        
+        self.base = M
+        self.max_digits = N
+        self.sign = Signed
+        
+        for i in Digits:
+            if not isinstance(i, int):
+                raise AttributeError("Все цифры должны быть целыми числами")
+            if i < 0 or i >= M:
+                raise AttributeError(f"Цифра {i} выходит за пределы допустимого диапазона [0, {M-1}]")
+        
+        self.digits = list(Digits[::-1])
+        
+        # Удаляем ведущие нули
         while len(self.digits) > 1 and self.digits[-1] == 0:
             self.digits.pop()
-
-        if len(self.digits) == 1 and self.digits[0] == 0:
-            self.sign = 1
-
-    def __str__(self) -> str:
-        """Преобразование в строку"""
-        if len(self.digits) == 1 and self.digits[0] == 0:
-            return "0"
-
-        chars = []
-        for digit in reversed(self.digits):
-            chars.append(LongInt.alphabet[digit + 1])
-
-        result = ''.join(chars)
-        if self.sign == -1 and result != "0":
-            result = '-' + result
-
-        return result
-
-    def _compare_absolute(self, other) -> int:
-        """Сравнение абсолютных значений"""
-        if len(self.digits) > len(other.digits):
-            return 1
-        elif len(self.digits) < len(other.digits):
-            return -1
-
+        
+        if not self.digits:
+            self.digits = [0]
+            self.sign = False  # Ноль всегда положительный
+    
+    def __str__(self):
+        """Представление числа в виде строки"""
+        digits_str = '|'.join(str(d) for d in self.digits[::-1])
+        sign_str = '-' if self.sign and self.digits != [0] else ''
+        return f"{sign_str}{digits_str} (base {self.base})"
+    
+    def __repr__(self):
+        return f"LongInt({self.base}, {self.max_digits}, {self.sign}, {', '.join(str(d) for d in self.digits[::-1])})"
+    
+    def _normalize(self):
+        """Нормализация числа - удаление ведущих нулей"""
+        while len(self.digits) > 1 and self.digits[-1] == 0:
+            self.digits.pop()
+        if not self.digits:
+            self.digits = [0]
+            self.sign = False
+    
+    def _compare_magnitude(self, other):
+        """Сравнение модулей двух чисел (без учета знака)"""
+        if len(self.digits) != len(other.digits):
+            return len(self.digits) - len(other.digits)
+        
         for i in range(len(self.digits)-1, -1, -1):
-            if self.digits[i] > other.digits[i]:
-                return 1
-            elif self.digits[i] < other.digits[i]:
-                return -1
-
+            if self.digits[i] != other.digits[i]:
+                return self.digits[i] - other.digits[i]
         return 0
-
-    def _is_zero(self) -> bool:
-        """Проверка на ноль"""
+    
+    def _is_zero(self):
+        """Проверка, является ли число нулем"""
         return len(self.digits) == 1 and self.digits[0] == 0
-
+    
     def __add__(self, other):
-        """Сложение"""
-        if not isinstance(other, LongInt):
-            raise AttributeError(
-                f"Переданный параметр не принадлежит классу f{self.__class__}")
-
-        if other.M != self.M:
-            raise AttributeError(
-                f"Переданный параметр имеет другую систему счисления: {self.M} | {other.M}")
-
-        if self.sign != other.sign:
-            if self.sign == -1:
-                return other - LongInt(self.__str__()[1:], self.M, self.N)
-            else:
-                return self - LongInt(other.__str__()[1:], self.M, self.N)
-
-        result = LongInt("0", self.M, self.N)
-        result.sign = self.sign
-
-        max_len = max(len(self.digits), len(other.digits))
+        """Сложение двух чисел с учетом знаков"""
+        if self.base != other.base:
+            raise ValueError("Основания систем счисления должны совпадать")
+        
+        # Оба положительные
+        if not self.sign and not other.sign:
+            return self._add_positive(other)
+        
+        # Оба отрицательные
+        if self.sign and other.sign:
+            result = self._add_positive(other)
+            result.sign = True
+            return result
+        
+        # Разные знаки - преобразуем к вычитанию
+        if self.sign and not other.sign:
+            # -a + b = b - a
+            return other - self._abs()
+        else:
+            # a + (-b) = a - b
+            return self - other._abs()
+    
+    def _add_positive(self, other):
+        """Сложение положительных чисел"""
+        result_digits = []
         carry = 0
-
+        max_len = max(len(self.digits), len(other.digits))
+        
         for i in range(max_len):
             digit1 = self.digits[i] if i < len(self.digits) else 0
             digit2 = other.digits[i] if i < len(other.digits) else 0
-
+            
             total = digit1 + digit2 + carry
-            carry = total // self.M
-            digit = total % self.M
-
-            if i < len(result.digits):
-                result.digits[i] = digit
-            else:
-                result.digits.append(digit)
-
+            carry = total // self.base
+            result_digits.append(total % self.base)
+        
         if carry > 0:
-            if len(result.digits) >= self.N:
+            if len(result_digits) >= self.max_digits:
                 raise OverflowError("Превышена максимальная разрядность")
-            result.digits.append(carry)
-
+            result_digits.append(carry)
+        
+        result = LongInt(self.base, self.max_digits, False, *result_digits[::-1])
         result._normalize()
         return result
-
+    
     def __sub__(self, other):
-        """Вычитание"""
-        if not isinstance(other, LongInt):
-            raise AttributeError(
-                f"Переданный параметр не принадлежит классу f{self.__class__}")
-
-        if other.M != self.M:
-            raise AttributeError(
-                f"Переданный параметр имеет другую систему счисления: {self.M} | {other.M}")
-
-        if self.sign != other.sign:
-            if self.sign == -1:
-                # -a - b = -(a + b)
-                temp = LongInt(self.__str__()[1:], self.M, self.N) + other
-                temp.sign = -1
-                return temp
-            else:
-                # a - (-b) = a + b
-                return self + LongInt(other.__str__()[1:], self.M, self.N)
-
-        if self.sign == -1:
-            positive_other = LongInt(other.__str__()[1:], self.M, self.N)
-            positive_self = LongInt(self.__str__()[1:], self.M, self.N)
-            return positive_other - positive_self
-
-        cmp = self._compare_absolute(other)
-
-        if cmp == 0:
-            return LongInt("0", self.M, self.N)
-
-        if cmp < 0:
-            result = other._subtract_absolute(self)
-            result.sign = -1
+        """Вычитание двух чисел с учетом знаков"""
+        if self.base != other.base:
+            raise ValueError("Основания систем счисления должны совпадать")
+        
+        # Оба положительные
+        if not self.sign and not other.sign:
+            return self._sub_positive(other)
+        
+        # Оба отрицательные
+        if self.sign and other.sign:
+            # -a - (-b) = -a + b = b - a
+            return other._abs() - self._abs()
+        
+        if self.sign and not other.sign:
+            result = self._abs()._add_positive(other)
+            result.sign = True
             return result
         else:
-            return self._subtract_absolute(other)
-
-    def _subtract_absolute(self, other):
-        """Вычитание абсолютных значений (self >= other)"""
-        result = LongInt("0", self.M, self.N)
+            return self._add_positive(other._abs())
+    
+    def _sub_positive(self, other):
+        """Вычитание положительных чисел"""
+        comp = self._compare_magnitude(other)
+        
+        if comp < 0:
+            larger, smaller = other, self
+            result_sign = True
+        else:
+            larger, smaller = self, other
+            result_sign = False
+        
+        result_digits = []
         borrow = 0
-
-        for i in range(len(self.digits)):
-            digit1 = self.digits[i]
-            digit2 = other.digits[i] if i < len(other.digits) else 0
-
-            diff = digit1 - digit2 - borrow
-
+        
+        for i in range(len(larger.digits)):
+            digit_larger = larger.digits[i]
+            digit_smaller = smaller.digits[i] if i < len(smaller.digits) else 0
+            
+            diff = digit_larger - digit_smaller - borrow
+            
             if diff < 0:
-                diff += self.M
+                diff += self.base
                 borrow = 1
             else:
                 borrow = 0
-
-            if i < len(result.digits):
-                result.digits[i] = diff
-            else:
-                result.digits.append(diff)
-
+            
+            result_digits.append(diff)
+        
+        result = LongInt(self.base, self.max_digits, result_sign, *result_digits[::-1])
         result._normalize()
         return result
-
+    
+    def _abs(self):
+        """Возвращает модуль числа"""
+        result = LongInt(self.base, self.max_digits, False, *self.digits[::-1])
+        return result
+    
     def __mul__(self, other):
-        """Умножение"""
-        if not isinstance(other, LongInt):
-            raise AttributeError(
-                f"Переданный параметр не принадлежит классу f{self.__class__}")
-
-        if other.M != self.M:
-            raise AttributeError(
-                f"Переданный параметр имеет другую систему счисления: {self.M} | {other.M}")
-
-        if self._is_zero() or other._is_zero():
-            return LongInt("0", self.M, self.N)
-
-        result = LongInt("0", self.M, self.N)
-        result.sign = self.sign * other.sign
-
+        """Умножение двух чисел"""
+        if self.base != other.base:
+            raise ValueError("Основания систем счисления должны совпадать")
+        
+        result = LongInt(self.base, self.max_digits, False, 0)
+        
         for i, digit1 in enumerate(self.digits):
             carry = 0
-            temp_digits = [0] * i  # Сдвиг на i разрядов
-
+            temp_digits = [0] * i 
+            
             for digit2 in other.digits:
                 product = digit1 * digit2 + carry
-                carry = product // self.M
-                temp_digits.append(product % self.M)
-
+                carry = product // self.base
+                temp_digits.append(product % self.base)
+            
             if carry > 0:
-                if len(temp_digits) >= self.N:
-                    raise OverflowError("Превышена максимальная разрядность")
                 temp_digits.append(carry)
-
-            temp_num = LongInt("0", self.M, self.N)
-            temp_num.digits = temp_digits
-            temp_num._normalize()
-
+            
+            temp_num = LongInt(self.base, self.max_digits, False, *temp_digits[::-1])
             result = result + temp_num
-
+        
+        result_sign = self.sign != other.sign
+        result.sign = result_sign
         result._normalize()
+        
         return result
-
+    
     def __floordiv__(self, other):
-        """Целочисленное деление"""
-        if not isinstance(other, LongInt):
-            raise AttributeError(
-                f"Переданный параметр не принадлежит классу f{self.__class__}")
-
-        if other.M != self.M:
-            raise AttributeError(
-                f"Переданный параметр имеет другую систему счисления: {self.M} | {other.M}")
-
+        """Целочисленное деление с учетом знаков"""
+        if self.base != other.base:
+            raise ValueError("Основания систем счисления должны совпадать")
+        
         if other._is_zero():
             raise ZeroDivisionError("Деление на ноль")
-
-        if self._is_zero():
-            return LongInt("0", self.M, self.N)
-
-        cmp = self._compare_absolute(other)
-        if cmp < 0:
-            return LongInt("0", self.M, self.N)
-
-        if cmp == 0:
-            result = LongInt("1", self.M, self.N)
-            result.sign = self.sign * other.sign
-            return result
-
-        result = LongInt("0", self.M, self.N)
-        result.sign = self.sign * other.sign
-
-        dividend = LongInt(self.__str__(), self.M, self.N)
-        dividend.sign = 1
-        divisor = LongInt(other.__str__(), self.M, self.N)
-        divisor.sign = 1
-
-        quotient_digits = []
-        current = LongInt("0", self.M, self.N)
-
-        for i in range(len(dividend.digits)-1, -1, -1):
-            current = current * LongInt(str(self.M), self.M, self.N)
-            current = current + \
-                LongInt(str(dividend.digits[i]), self.M, self.N)
-
-            digit = 0
-            left, right = 0, self.M - 1
-
-            while left <= right:
-                mid = (left + right) // 2
-                temp = divisor * LongInt(str(mid), self.M, self.N)
-
-                if temp._compare_absolute(current) <= 0:
-                    digit = mid
-                    left = mid + 1
-                else:
-                    right = mid - 1
-
-            quotient_digits.append(digit)
-            subtract = divisor * LongInt(str(digit), self.M, self.N)
-            current = current - subtract
-
-        result.digits = quotient_digits[::-1]
-
-        result._normalize()
-
-        if result.sign == 1:
-            result = result - LongInt("1", self.M, self.N)
-        else:
-            result = result + LongInt("1", self.M, self.N)
-
-        return result
-
+        
+        abs_self = self._abs()
+        abs_other = other._abs()
+        
+        quotient = LongInt(self.base, self.max_digits, False, 0)
+        remainder = LongInt(self.base, self.max_digits, False, *abs_self.digits[::-1])
+        
+        one = LongInt(self.base, self.max_digits, False, 1)
+        
+        while remainder._compare_magnitude(abs_other) >= 0:
+            remainder = remainder - abs_other
+            quotient = quotient + one
+        
+        quotient.sign = self.sign != other.sign
+        quotient._normalize()
+        
+        return quotient
+    
+    def __mod__(self, other):
+        """Остаток от деления"""
+        quotient = self // other
+        temp = quotient * other
+        remainder = self - temp
+        return remainder
+    
     def __eq__(self, other):
+        """Проверка на равенство"""
         if not isinstance(other, LongInt):
-            raise AttributeError(
-                f"Переданный параметр не принадлежит классу f{self.__class__}")
-
-        if other.M != self.M:
-            raise AttributeError(
-                f"Переданный параметр имеет другую систему счисления: {self.M} | {other.M}")
-
-        return (self.sign == other.sign and
-                len(self.digits) == len(other.digits) and
-                all(a == b for a, b in zip(self.digits, other.digits)))
-
+            return False
+        return (self.base == other.base and 
+                self.sign == other.sign and 
+                self.digits == other.digits)
+    
     def __lt__(self, other):
-        if not isinstance(other, LongInt):
-            raise AttributeError(
-                f"Переданный параметр не принадлежит классу f{self.__class__}")
-
-        if other.M != self.M:
-            raise AttributeError(
-                f"Переданный параметр имеет другую систему счисления: {self.M} | {other.M}")
-
+        """Проверка на меньше"""
         if self.sign != other.sign:
-            return self.sign < other.sign
-
-        cmp = self._compare_absolute(other)
-        if self.sign == 1:
-            return cmp < 0
-        else:
-            return cmp > 0
+            return self.sign > other.sign  
+        
+        comp = self._compare_magnitude(other)
+        if self.sign:  
+            return comp > 0
+        else:  
+            return comp < 0
 
     def to_int(self) -> int:
-        """Преобразование в обычное целое число"""
+        """
+        Преобразует число в целое число (int).
+        Внимание: может вызвать переполнение для очень больших чисел!
+        """
         result = 0
-        for i, digit in enumerate(self.digits):
-            result += digit * (self.M ** i)
-        return result * self.sign
+        power = 1
+        
+        for digit in self.digits:
+            result += digit * power
+            power *= self.base
+        
+        return -result if self.sign and result != 0 else result
 
+def test_operations(base, *digits_list, title=""):
+    """Тестирует все операции для заданной системы счисления"""
+    print(f"\n{'='*60}")
+    print(f"{title} (Система счисления {base})")
+    print(f"{'='*60}")
+    
+    # Создаем числа
+    numbers = []
+    for i, digits in enumerate(digits_list):
+        num = LongInt(base, 100, False, *digits)
+        numbers.append(num)
+        print(f"Число {i+1}: {num}")
+    
+    print()
+    
+    # Тестируем все операции
+    a, b = numbers[0], numbers[1]
+    
+    # Сложение
+    try:
+        result = a + b
+        print(f"Сложение: {a} + {b} = {result}")
+    except Exception as e:
+        print(f"Ошибка сложения: {e}")
+    
+    # Вычитание
+    try:
+        result = a - b
+        print(f"Вычитание: {a} - {b} = {result}")
+    except Exception as e:
+        print(f"Ошибка вычитания: {e}")
+    
+    # Умножение
+    try:
+        result = a * b
+        print(f"Умножение: {a} * {b} = {result}")
+    except Exception as e:
+        print(f"Ошибка умножения: {e}")
+    
+    # Деление
+    try:
+        result = a // b
+        print(f"Деление: {a} // {b} = {result}")
+    except Exception as e:
+        print(f"Ошибка деления: {e}")
+    
+    # Остаток
+    try:
+        result = a % b
+        print(f"Остаток: {a} % {b} = {result}")
+    except Exception as e:
+        print(f"Ошибка остатка: {e}")
+    
+    print()
 
-# Пример использования и тестирования
-if __name__ == "__main__":
-    # Тестирование в 10-ричной системе
-    print("Тестирование в 10-ричной системе:")
-    a = LongInt("123", 10, 100)
-    b = LongInt("45", 10, 100)
+# ===== СИСТЕМА СЧИСЛЕНИЯ 2 (ДВОИЧНАЯ) =====
+test_operations(
+    2,
+    [1, 0, 1, 1],   # 1011₂ = 11 десятичное
+    [1, 1, 0],      # 110₂ = 6 десятичное
+    title="ДВОИЧНАЯ СИСТЕМА"
+)
 
-    print(f"a = {a}, b = {b}")
-    print(f"a + b = {a + b}")      # 168
-    print(f"a - b = {a - b}")      # 78
-    print(f"b - a = {b - a}")      # -78
-    print(f"a * b = {a * b}")      # 5535
-    print(f"a // b = {a // b}")    # 2
+# Дополнительные примеры для двоичной системы
+print("Дополнительные двоичные примеры:")
+bin1 = LongInt(2, 100, False, 1, 1, 1, 1)    # 1111₂ = 15
+bin2 = LongInt(2, 100, False, 1, 0, 1)       # 101₂ = 5
+print(f"1111₂ + 101₂ = {bin1 + bin2}")       # 10100₂ = 20
+print(f"1111₂ * 101₂ = {bin1 * bin2}")       # 1001011₂ = 75
+print()
 
-    # Тестирование в 16-ричной системе
-    print("\nТестирование в 16-ричной системе:")
-    hex_a = LongInt("a1f", 16, 100)
-    hex_b = LongInt("2b", 16, 100)
+# ===== СИСТЕМА СЧИСЛЕНИЯ 10 (ДЕСЯТИЧНАЯ) =====
+test_operations(
+    10,
+    [1, 2, 3],      # 123
+    [4, 5],         # 45
+    title="ДЕСЯТИЧНАЯ СИСТЕМА"
+)
 
-    print(f"hex_a = {hex_a} (в десятичной: {hex_a.to_int()})")
-    print(f"hex_b = {hex_b} (в десятичной: {hex_b.to_int()})")
-    print(f"hex_a + hex_b = {hex_a + hex_b}")  # a4a
-    print(f"hex_a - hex_b = {hex_a - hex_b}")  # 9f4
-    print(f"hex_a * hex_b = {hex_a * hex_b}")  # 1b8d5
-    print(f"hex_a // hex_b = {hex_a // hex_b}")  # 3c
+# Дополнительные примеры для десятичной системы
+print("Дополнительные десятичные примеры:")
+dec1 = LongInt(10, 100, False, 9, 9, 9)      # 999
+dec2 = LongInt(10, 100, False, 1)            # 1
+print(f"999 + 1 = {dec1 + dec2}")            # 1000
+print(f"999 * 2 = {dec1 * LongInt(10, 100, False, 2)}")  # 1998
+print()
+
+# Пример с отрицательными числами
+dec_neg = LongInt(10, 100, True, 5, 0)       # -50
+dec_pos = LongInt(10, 100, False, 3, 0)      # 30
+print(f"Отрицательные: {-50} + {30} = {dec_neg + dec_pos}")  # -20
+print(f"Отрицательные: {-50} * {30} = {dec_neg * dec_pos}")  # -1500
+print()
+
+# ===== СИСТЕМА СЧИСЛЕНИЯ 16 (ШЕСТНАДЦАТЕРИЧНАЯ) =====
+test_operations(
+    16,
+    [10, 11, 12],   # ABC₁₆ = 2748 десятичное (10*256 + 11*16 + 12)
+    [5, 15],        # 5F₁₆ = 95 десятичное (5*16 + 15)
+    title="ШЕСТНАДЦАТЕРИЧНАЯ СИСТЕМА"
+)
+
+# Дополнительные примеры для шестнадцатеричной системы
+print("Дополнительные шестнадцатеричные примеры:")
+hex1 = LongInt(16, 100, False, 15, 15)       # FF₁₆ = 255
+hex2 = LongInt(16, 100, False, 1)            # 1₁₆ = 1
+print(f"FF₁₆ + 1₁₆ = {hex1 + hex2}")         # 100₁₆ = 256
+print(f"FF₁₆ * 2₁₆ = {hex1 * LongInt(16, 100, False, 2)}")  # 1FE₁₆ = 510
+
+# Пример с буквенными обозначениями (A=10, B=11, C=12, D=13, E=14, F=15)
+hex_a = LongInt(16, 100, False, 10)          # A₁₆ = 10
+hex_b = LongInt(16, 100, False, 11)          # B₁₆ = 11
+print(f"A₁₆ + B₁₆ = {hex_a + hex_b}")        # 15₁₆ = 21 (но в 16-ричной: 15 = F)
+print()
+
+# ===== СЛОЖНЫЕ ПРИМЕРЫ =====
+print("="*60)
+print("СЛОЖНЫЕ ПРИМЕРЫ С РАЗНЫМИ СИСТЕМАМИ")
+print("="*60)
+
+# Сравнение производительности в разных системах
+numbers_to_test = [
+    ([2], [1, 0, 1, 1], [1, 1, 0]),          # Двоичная
+    ([10], [1, 2, 3], [4, 5]),               # Десятичная
+    ([16], [10, 11, 12], [5, 15]),           # Шестнадцатеричная
+]
+
+for base, num1_digits, num2_digits in numbers_to_test:
+    base_val = base[0]
+    num1 = LongInt(base_val, 100, False, *num1_digits)
+    num2 = LongInt(base_val, 100, False, *num2_digits)
+    
+    print(f"\nСистема {base_val}:")
+    print(f"{num1} + {num2} = {num1 + num2}")
+    print(f"{num1} * {num2} = {num1 * num2}")
